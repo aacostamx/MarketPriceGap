@@ -1,41 +1,39 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.RegularExpressions;
-using System.Threading;
-using Binance.Net;
+﻿using Binance.Net;
 using Discord;
+using Microsoft.Extensions.Configuration;
+using Serilog;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace MarketPriceGap
 {
-    // ReSharper disable once ClassNeverInstantiated.Global
-    class Program
+    public static class Program
     {
-        static BinanceClient Client = new BinanceClient();
-
-        static void Main(string[] args)
+        public static void Main()
         {
-            var webhook = Regex.Split(File.ReadAllText(Environment.CurrentDirectory + "\\webhook.txt"), "/");
-            var webhookId = ulong.Parse(webhook[0]);
-            var token = webhook[1];
-            var discord = new Discord(webhookId, token);
+            Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().WriteTo.Console().CreateLogger();
 
-            var interval = int.Parse(File.ReadAllText(Environment.CurrentDirectory + "\\interval.txt"));
-            var pairs = Regex.Split(File.ReadAllText(Environment.CurrentDirectory + "\\pair.txt"), "\r\n");
-            // ReSharper disable once IdentifierTypo
-            Dictionary<string, int> gaplist = new Dictionary<string, int>();
+            IConfiguration config = new ConfigurationBuilder()
+                      .AddJsonFile("appsettings.json", true, true)
+                      .Build();
+
+            var discord = new Discord(Convert.ToUInt64(config["WebHookId"]), config["WebHookToken"]);
+
+            var interval = Convert.ToInt32(config["interval"]);
+            string[] pairs = { "BTCUSDT" };
+            var gaplist = new Dictionary<string, int>();
 
             while (true)
             {
-                Thread.Sleep(interval);
+                //Thread.Sleep(interval);
 
                 foreach (var pair in pairs)
                 {
                     var market = GetMarketPrice(pair);
                     var price = GetPrice(pair);
                     var gapPercent = GetPrcentAbs(market, price);
-                    //Console.WriteLine($"Pair: {pair} \r\nPriceGap: {gapPercent:##.##}");
+                    Console.WriteLine($"Pair: {pair} \r\nPriceGap: {gapPercent:##.##}");
 
                     if (gapPercent >= 2m)
                     {
@@ -68,17 +66,21 @@ namespace MarketPriceGap
 
         static decimal GetMarketPrice(string pair)
         {
-            return Client.FuturesUsdt.Market.GetMarkPrices(pair).Data.Last().MarkPrice;
+            using BinanceClient binance = new BinanceClient();
+            var result = binance.FuturesUsdt.Market.GetPrice(pair);
+
+            return binance.FuturesUsdt.Market.GetMarkPrices(pair).Data.Last().MarkPrice;
         }
 
         static decimal GetPrice(string pair)
         {
+            BinanceClient Client = new BinanceClient();
             return Client.FuturesUsdt.Market.GetPrice(pair).Data.Price;
         }
 
         static decimal GetPrcentAbs(decimal value1, decimal value2)
         {
-            var percentage = value1 / value2 * 100 - 100;
+            var percentage = (value1 / value2 * 100) - 100;
             return percentage < 0 ? percentage * -1 : percentage;
         }
     }
